@@ -63,7 +63,7 @@ jobs:
           SUCCESS=0
           TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
 
-          echo "Starting provisioning loop for free ARM slot..."
+          echo "Starting provisioning attempts..."
           for i in {1..8}; do
             echo "Attempt $i/8..."
             if terraform apply -auto-approve; then
@@ -77,55 +77,27 @@ jobs:
 
           if [ $SUCCESS -eq 1 ]; then
             IP=$(terraform output -json instance_public_ips 2>/dev/null | tr -d '[]" \n' || echo "Check OCI Console")
-            cat <<'STATUS_EOF' > status.txt
-🟢 **Provisioned Successfully**
-- **Status:** Online
-- **Public IP:** `STATUS_IP_PLACEHOLDER`
-- **Completed At:** STATUS_TIME_PLACEHOLDER
-STATUS_EOF
-            sed -i "s|STATUS_IP_PLACEHOLDER|$IP|g" status.txt
-            sed -i "s|STATUS_TIME_PLACEHOLDER|$TIMESTAMP|g" status.txt
+            cat <<STATUS_EOF > status.txt
+          🟢 **Provisioned Successfully**
+          - **Status:** Online
+          - **Public IP:** \`$IP\`
+          - **Completed At:** $TIMESTAMP
+          STATUS_EOF
           else
-            cat <<'STATUS_EOF' > status.txt
-🟡 **Out of Host Capacity (Retrying)**
-- **Status:** Waiting for free ARM slot in Mumbai
-- **Last Attempted:** STATUS_TIME_PLACEHOLDER
-- **Next Retry:** Automatically scheduled via Cron
-STATUS_EOF
-            sed -i "s|STATUS_TIME_PLACEHOLDER|$TIMESTAMP|g" status.txt
+            cat <<STATUS_EOF > status.txt
+          🟡 **Out of Host Capacity (Retrying)**
+          - **Status:** Waiting for free ARM slot in Mumbai
+          - **Last Attempted:** $TIMESTAMP
+          - **Next Retry:** Automatically scheduled via Cron
+          STATUS_EOF
           fi
 
-          # Update README.md status block
-          python3 - <<'PY_EOF'
-          import re, sys
+          python3 update_readme.py status.txt
 
-          with open("status.txt", "r") as f:
-              status_content = f.read().strip()
-
-          block = f"<!-- OCI_STATUS_START -->\n{status_content}\n<!-- OCI_STATUS_END -->"
-
-          try:
-              with open("README.md", "r") as f:
-                  content = f.read()
-
-              if "<!-- OCI_STATUS_START -->" in content:
-                  new_content = re.sub(r"<!-- OCI_STATUS_START -->[\s\S]*?<!-- OCI_STATUS_END -->", block, content)
-              else:
-                  new_content = content + f"\n\n## Deployment Status\n\n{block}\n"
-
-              with open("README.md", "w") as f:
-                  f.write(new_content)
-          except FileNotFoundError:
-              with open("README.md", "w") as f:
-                  f.write(f"# OpsPulse OCI Infrastructure\n\n## Deployment Status\n\n{block}\n")
-          PY_EOF
-
-          # Commit status change back to repository
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
           git commit -m "docs: update provisioning status [$TIMESTAMP]" || echo "No changes to commit."
           git push origin main || echo "Push skipped or up to date."
 
-          # Always exit 0 to prevent failure emails
           exit 0
