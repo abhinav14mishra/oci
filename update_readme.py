@@ -10,7 +10,7 @@ block = f"<!-- OCI_STATUS_START -->\n{status_content}\n<!-- OCI_STATUS_END -->"
 try:
     with open("README.md", "r") as f:
         content = f.read()
-    
+
     if "<!-- OCI_STATUS_START -->" in content:
         new_content = re.sub(
             r"<!-- OCI_STATUS_START -->[\s\S]*?<!-- OCI_STATUS_END -->",
@@ -22,6 +22,6 @@ try:
 
     with open("README.md", "w") as f:
         f.write(new_content)
-    print("README.md updated successfully.")
-except Exception as e:
-    print(f"Error updating README.md: {e}")
+except FileNotFoundError:
+    with open("README.md", "w") as f:
+        f.write(f"# OpsPulse OCI Infrastructure\n\n## Deployment Status\n\n{block}\n")
