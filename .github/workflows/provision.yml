@@ -1,0 +1,101 @@
+name: Provision OCI Ampere Instance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  terraform-apply:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: oci-provisioning
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure OCI Private Key
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Terraform Init
+        env:
+          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          TF_VAR_private_key_path: "/home/runner/.oci/oci_api_key.pem"
+          TF_VAR_region: "ap-mumbai-1"
+          TF_VAR_instance_count: 1
+          TF_VAR_ocpus: 2
+          TF_VAR_memory_in_gbs: 12
+          TF_VAR_boot_volume_size_in_gbs: 100
+        run: terraform init
+
+      - name: Terraform Apply Loop & README Update
+        id: provision
+        env:
+          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          TF_VAR_private_key_path: "/home/runner/.oci/oci_api_key.pem"
+          TF_VAR_region: "ap-mumbai-1"
+          TF_VAR_instance_count: 1
+          TF_VAR_ocpus: 2
+          TF_VAR_memory_in_gbs: 12
+          TF_VAR_boot_volume_size_in_gbs: 100
+        run: |
+          SUCCESS=0
+          TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+
+          echo "Starting provisioning attempts..."
+          for i in {1..8}; do
+            echo "Attempt $i/8..."
+            if terraform apply -auto-approve; then
+              echo "SUCCESS: Instance launched!"
+              SUCCESS=1
+              break
+            fi
+            echo "Host out of capacity. Sleeping 40 seconds..."
+            sleep 40
+          done
+
+          if [ $SUCCESS -eq 1 ]; then
+            IP=$(terraform output -json instance_public_ips 2>/dev/null | tr -d '[]" \n' || echo "Check OCI Console")
+            STATUS="🟢 **Provisioned Successfully**\n- **Status:** Online\n- **Public IP:** \`$IP\`\n- **Completed At:** $TIMESTAMP"
+          else
+            STATUS="🟡 **Out of Host Capacity (Retrying)**\n- **Status:** Waiting for free ARM slot in Mumbai\n- **Last Attempted:** $TIMESTAMP\n- **Next Retry:** Automatically scheduled via Cron"
+          fi
+
+          python3 -c "
+import re
+status_content = '''<!-- OCI_STATUS_START -->\n$STATUS\n<!-- OCI_STATUS_END -->'''
+with open('README.md', 'r') as f:
+    text = f.read()
+new_text = re.sub(r'<!-- OCI_STATUS_START -->[\s\S]*?<!-- OCI_STATUS_END -->', status_content, text)
+with open('README.md', 'w') as f:
+    f.write(new_text)
+"
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update provisioning status [$TIMESTAMP]" || echo "No changes to commit."
+          git push origin main || echo "Push skipped or up to date."
+
+          exit 0

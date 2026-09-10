@@ -1,0 +1,15 @@
+# Terraform local state and secrets
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+
+# Private keys, connection scripts, and debug logs
+*.pem
+id_ed25519*
+id_rsa*
+ssh_config
+connect.sh
+provision.log
