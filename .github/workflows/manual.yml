@@ -1,0 +1,131 @@
+name: Provision OCI Ampere Instance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  terraform-apply:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: oci-provisioning
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Configure OCI Private Key
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+
+      - name: Terraform Init
+        env:
+          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          TF_VAR_private_key_path: "/home/runner/.oci/oci_api_key.pem"
+          TF_VAR_region: "ap-mumbai-1"
+          TF_VAR_instance_count: 1
+          TF_VAR_ocpus: 2
+          TF_VAR_memory_in_gbs: 12
+          TF_VAR_boot_volume_size_in_gbs: 100
+        run: terraform init
+
+      - name: Run Provisioning Loop
+        id: provision
+        env:
+          TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_compartment_ocid: ${{ secrets.OCI_COMPARTMENT_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          TF_VAR_private_key_path: "/home/runner/.oci/oci_api_key.pem"
+          TF_VAR_region: "ap-mumbai-1"
+          TF_VAR_instance_count: 1
+          TF_VAR_ocpus: 2
+          TF_VAR_memory_in_gbs: 12
+          TF_VAR_boot_volume_size_in_gbs: 100
+        run: |
+          SUCCESS=0
+          TIMESTAMP=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
+
+          echo "Starting provisioning loop for free ARM slot..."
+          for i in {1..8}; do
+            echo "Attempt $i/8..."
+            if terraform apply -auto-approve; then
+              echo "SUCCESS: Instance launched!"
+              SUCCESS=1
+              break
+            fi
+            echo "Host out of capacity. Sleeping 40 seconds..."
+            sleep 40
+          done
+
+          if [ $SUCCESS -eq 1 ]; then
+            IP=$(terraform output -json instance_public_ips 2>/dev/null | tr -d '[]" \n' || echo "Check OCI Console")
+            cat <<'STATUS_EOF' > status.txt
+🟢 **Provisioned Successfully**
+- **Status:** Online
+- **Public IP:** `STATUS_IP_PLACEHOLDER`
+- **Completed At:** STATUS_TIME_PLACEHOLDER
+STATUS_EOF
+            sed -i "s|STATUS_IP_PLACEHOLDER|$IP|g" status.txt
+            sed -i "s|STATUS_TIME_PLACEHOLDER|$TIMESTAMP|g" status.txt
+          else
+            cat <<'STATUS_EOF' > status.txt
+🟡 **Out of Host Capacity (Retrying)**
+- **Status:** Waiting for free ARM slot in Mumbai
+- **Last Attempted:** STATUS_TIME_PLACEHOLDER
+- **Next Retry:** Automatically scheduled via Cron
+STATUS_EOF
+            sed -i "s|STATUS_TIME_PLACEHOLDER|$TIMESTAMP|g" status.txt
+          fi
+
+          # Update README.md status block
+          python3 - <<'PY_EOF'
+          import re, sys
+
+          with open("status.txt", "r") as f:
+              status_content = f.read().strip()
+
+          block = f"<!-- OCI_STATUS_START -->\n{status_content}\n<!-- OCI_STATUS_END -->"
+
+          try:
+              with open("README.md", "r") as f:
+                  content = f.read()
+
+              if "<!-- OCI_STATUS_START -->" in content:
+                  new_content = re.sub(r"<!-- OCI_STATUS_START -->[\s\S]*?<!-- OCI_STATUS_END -->", block, content)
+              else:
+                  new_content = content + f"\n\n## Deployment Status\n\n{block}\n"
+
+              with open("README.md", "w") as f:
+                  f.write(new_content)
+          except FileNotFoundError:
+              with open("README.md", "w") as f:
+                  f.write(f"# OpsPulse OCI Infrastructure\n\n## Deployment Status\n\n{block}\n")
+          PY_EOF
+
+          # Commit status change back to repository
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: update provisioning status [$TIMESTAMP]" || echo "No changes to commit."
+          git push origin main || echo "Push skipped or up to date."
+
+          # Always exit 0 to prevent failure emails
+          exit 0
