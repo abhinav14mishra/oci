@@ -5,6 +5,8 @@ Automated provisioning for Oracle Cloud Always Free Ampere A1 compute.
 ## Deployment Status
 
 <!-- OCI_STATUS_START -->
-🟡 **Pending First Run**
-- **Status:** Waiting for initial GitHub Actions execution
+🟡 **Out of Host Capacity (Retrying)**
+- **Status:** Waiting for free ARM slot in Mumbai
+- **Last Attempted:** 2026-09-10 09:05:41 UTC
+- **Next Retry:** Automatically scheduled via Cron
 <!-- OCI_STATUS_END -->
