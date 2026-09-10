@@ -46,7 +46,7 @@ jobs:
           TF_VAR_boot_volume_size_in_gbs: 100
         run: terraform init
 
-      - name: Terraform Apply Loop & README Update
+      - name: Run Provisioning Loop
         id: provision
         env:
           TF_VAR_user_ocid: ${{ secrets.OCI_USER_OCID }}
@@ -77,20 +77,22 @@ jobs:
 
           if [ $SUCCESS -eq 1 ]; then
             IP=$(terraform output -json instance_public_ips 2>/dev/null | tr -d '[]" \n' || echo "Check OCI Console")
-            STATUS="🟢 **Provisioned Successfully**\n- **Status:** Online\n- **Public IP:** \`$IP\`\n- **Completed At:** $TIMESTAMP"
+            cat <<STATUS_EOF > status.txt
+🟢 **Provisioned Successfully**
+- **Status:** Online
+- **Public IP:** \`$IP\`
+- **Completed At:** $TIMESTAMP
+STATUS_EOF
           else
-            STATUS="🟡 **Out of Host Capacity (Retrying)**\n- **Status:** Waiting for free ARM slot in Mumbai\n- **Last Attempted:** $TIMESTAMP\n- **Next Retry:** Automatically scheduled via Cron"
+            cat <<STATUS_EOF > status.txt
+🟡 **Out of Host Capacity (Retrying)**
+- **Status:** Waiting for free ARM slot in Mumbai
+- **Last Attempted:** $TIMESTAMP
+- **Next Retry:** Automatically scheduled via Cron
+STATUS_EOF
           fi
 
-          python3 -c "
-import re
-status_content = '''<!-- OCI_STATUS_START -->\n$STATUS\n<!-- OCI_STATUS_END -->'''
-with open('README.md', 'r') as f:
-    text = f.read()
-new_text = re.sub(r'<!-- OCI_STATUS_START -->[\s\S]*?<!-- OCI_STATUS_END -->', status_content, text)
-with open('README.md', 'w') as f:
-    f.write(new_text)
-"
+          python3 update_readme.py status.txt
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
