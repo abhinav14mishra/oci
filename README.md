@@ -7,6 +7,6 @@ Automated provisioning for Oracle Cloud Always Free Ampere A1 compute.
 <!-- OCI_STATUS_START -->
 🟡 **Out of Host Capacity (Retrying)**
 - **Status:** Waiting for free ARM slot in Mumbai
-- **Last Attempted:** 2026-09-29 15:39:20 UTC
+- **Last Attempted:** 2026-09-29 20:36:57 UTC
 - **Next Retry:** Automatically scheduled via Cron
 <!-- OCI_STATUS_END -->
